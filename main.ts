@@ -117,7 +117,7 @@ function splatSS(cx, cy, rad, r, g, b, strength) {
 }
 
 // The phoenix is the key light. Design-space centre of the bird:
-const KEY = [512, 446];
+const KEY = [505, 438];
 function keyLight(x, y) { // design coords in, scalar intensity out
   const dx = x - KEY[0], dy = y - KEY[1];
   const d2 = dx * dx + dy * dy;
@@ -247,7 +247,7 @@ function drawRibbon(p0, p1, p2, w0, opt) {
     const dl = Math.hypot(dx, dy) || 1;
     const nx = -dy / dl, ny = dx / dl;
     // width profile: full body, gentle taper to a soft point (no pinched base)
-    const prof = (0.62 + 0.38 * Math.sin(Math.PI * clamp(0.10 + 0.90 * t, 0, 1) * 0.5 + 0.05)) * Math.pow(1 - t, opt.taper * 0.38);
+    const prof = (0.62 + 0.38 * Math.sin(Math.PI * clamp(0.10 + 0.90 * t, 0, 1) * 0.5 + 0.05)) * Math.pow(1 - t, opt.taper * 0.38) * (1 - 0.72 * Math.pow(sstep(0.70, 1.0, t), 1.6));
     const hw = Math.max(0.8, w0 * K * 0.5 * prof);
     const along = t * opt.len;
     const reach = Math.ceil(hw * 1.18);
@@ -262,7 +262,7 @@ function drawRibbon(p0, p1, p2, w0, opt) {
       if (fall <= 0.004) continue;
       // barb streaks: stretched noise in feather-local space
       const streak = vnoise(along * 0.038 + opt.seed * 61.7, u * 2.6 + opt.seed * 17.3);
-      const barb = 0.962 + 0.052 * streak + 0.010 * Math.sin(along * 1.5 + au * 9 + opt.seed * 40);
+      const barb = 0.972 + 0.034 * streak + 0.004 * Math.sin(along * 0.35 + au * 5 + opt.seed * 40);
       const coreW = Math.pow(1 - Math.min(au, 1), 1.6);
       let cr = lerp(opt.edge[0], opt.core[0], coreW) * barb * baseShade * tipFade;
       let cg = lerp(opt.edge[1], opt.core[1], coreW) * barb * baseShade * tipFade;
@@ -292,140 +292,302 @@ function strokeGlow(p0, p1, p2, r, g, b, strength, rad) {
 const GOLD = [1.02, 0.68, 0.20], HOT = [1.06, 0.76, 0.34];
 const CRIM = [0.60, 0.10, 0.09], DEEP = [0.42, 0.07, 0.10];
 
-// ------------------------------------------------- wings
-function drawWing(side) {
-  const mx = (x) => side > 0 ? x : W - x;
-  // soft dark under-wing: solid core + feathered alpha fringe via noise
-  const lead = [], trail = [];
-  for (let s = 0; s <= 14; s++) lead.push(quadPt([512, 432], [712, 318], [930, 600], s / 14));
-  for (let s = 0; s <= 10; s++) trail.push(quadPt([930, 600], [760, 672], [520, 548], s / 10));
-  // shrink the silhouette slightly so feather overhang softens every edge
-  const poly = [...lead, ...trail].map(([x, y]) => [mx(512 + (x - 512) * 0.965), 500 + (y - 500) * 0.965]);
-  fillPolySS(poly, (x, y) => {
-    const t = fbm(x * 0.005, y * 0.005, 3);
-    const a = 0.88 * sstep(0.0, 0.10, 1); // base alpha; fringe handled by feathers overhang
-    blendSS(x, y, 0.115 + t * 0.05, 0.024 + t * 0.012, 0.040 + t * 0.012, a * (0.85 + 0.15 * t));
+// ------------------------------------------------- organic flame bird
+// Pose: banking mid-flight, body diagonal SW->NE (tail low-left, head
+// high-right). Far wing raised to the NW, near wing sweeping down to the
+// SE — the two wings are at opposite phases of the stroke, so nothing is
+// mirrored. Wings and tail are layered FLAME PLUMES: individual ribbons
+// with seeded jitter in length, width, curvature, spacing and hue, with
+// fingered split tips. No two plumes alike.
+const CORE = [505, 438];
+const cubicPt = (p0, p1, p2, p3, t) => {
+  const u = 1 - t;
+  return [u*u*u*p0[0] + 3*u*u*t*p1[0] + 3*u*t*t*p2[0] + t*t*t*p3[0],
+          u*u*u*p0[1] + 3*u*u*t*p1[1] + 3*u*t*t*p2[1] + t*t*t*p3[1]];
+};
+// Cubic ribbon: same soft cross-section / barb streak shading as
+// drawRibbon, but the spine is a cubic Bezier so it can bend in an S.
+function drawCubicRibbon(p0, p1, p2, p3, w0, opt) {
+  const steps = Math.max(16, Math.floor(opt.len * K / 1.35));
+  let prev = cubicPt(p0, p1, p2, p3, 0);
+  for (let s = 1; s <= steps; s++) {
+    const t = s / steps;
+    const pt = cubicPt(p0, p1, p2, p3, t);
+    const dx = (pt[0] - prev[0]) * K, dy = (pt[1] - prev[1]) * K;
+    const dl = Math.hypot(dx, dy) || 1;
+    const nx = -dy / dl, ny = dx / dl;
+    const prof = (0.60 + 0.40 * Math.sin(Math.PI * clamp(0.08 + 0.92 * t, 0, 1) * 0.5)) * Math.pow(1 - t, opt.taper * 0.38) * (1 - 0.55 * Math.pow(sstep(0.72, 1.0, t), 1.6));
+    const hw = Math.max(0.8, w0 * K * 0.5 * prof);
+    const along = t * opt.len;
+    const reach = Math.ceil(hw * 1.18);
+    const cx = pt[0] * K, cy = pt[1] * K;
+    const baseShade = 0.80 + 0.20 * sstep(0, 0.3, t);
+    const tipFade = 1 - sstep(0.8, 1, t) * 0.35;
+    for (let k = -reach; k <= reach; k++) {
+      const u = k / hw, au = Math.abs(u);
+      if (au > 1.18) continue;
+      const fall = sstep(1.18, 0.82, au);
+      if (fall <= 0.004) continue;
+      const streak = vnoise(along * 0.035 + opt.seed * 61.7, u * 2.6 + opt.seed * 17.3);
+      const barb = 0.97 + 0.038 * streak;
+      const coreW = Math.pow(1 - Math.min(au, 1), 1.6);
+      let cr = lerp(opt.edge[0], opt.core[0], coreW) * barb * baseShade * tipFade;
+      let cg = lerp(opt.edge[1], opt.core[1], coreW) * barb * baseShade * tipFade;
+      let cb = lerp(opt.edge[2], opt.core[2], coreW) * barb * baseShade * tipFade;
+      if (opt.hot) { const h = Math.pow(1 - Math.min(au, 1), 3) * (1 - t * 0.5); cr += 0.24 * h; cg += 0.16 * h; cb += 0.07 * h; }
+      const a = opt.alpha * fall * (opt.breakup ? (0.60 + 0.58 * fbm(along * 0.03 + opt.seed * 9.1, opt.seed * 3.7, 2)) : 1);
+      blendSS(Math.round(cx + nx * k), Math.round(cy + ny * k), cr, cg, cb, clamp(a, 0, 1));
+    }
+    prev = pt;
+  }
+  if (opt.shaft) {
+    const ssteps = Math.floor(opt.len * K / 2);
+    for (let s = 0; s <= ssteps; s++) {
+      const pt = cubicPt(p0, p1, p2, p3, s / ssteps);
+      splatSS(pt[0] * K, pt[1] * K, 2.0, 0.26 * (1 - s / ssteps), 0.15 * (1 - s / ssteps), 0.03, 0.30);
+    }
+  }
+}
+// One flame plume: a curved tongue of fire with a split, fingered tip.
+function flamePlume(bx, by, angDeg, len, wid, seed, opt) {
+  const a = angDeg * Math.PI / 180;
+  const dx = Math.cos(a), dy = Math.sin(a);
+  const px = -dy, py = dx;
+  const curve = (hash2(seed * 13 + 7, 3) - 0.5) * len * 0.95 + (opt.curve || 0);
+  const ex = bx + dx * len, ey = by + dy * len;
+  const cxp = bx + dx * len * 0.5 + px * curve * 0.5, cyp = by + dy * len * 0.5 + py * curve * 0.5;
+  drawRibbon([bx, by], [cxp, cyp], [ex, ey], wid, {
+    len, taper: opt.taper ?? 0.95, alpha: opt.alpha ?? 0.95, seed,
+    shaft: opt.shaft ?? true, hot: true, breakup: true,
+    core: opt.core, edge: opt.edge,
   });
-  const base0 = [502, 468], base1 = [728, 424], base2 = [944, 616];
-  const NF = 17;
-  for (let fi = NF - 1; fi >= 0; fi--) {
-    const t = fi / (NF - 1);
-    const bp = quadPt(base0, base1, base2, t);
-    const ang = lerp(1.44, 0.46, t);
-    const len = 172 + 150 * t - 42 * t * t;
-    const dirx = Math.cos(ang) * side, diry = Math.sin(ang);
-    const ex = bp[0] + dirx * len, ey = bp[1] + diry * len;
-    const cxp = bp[0] + dirx * len * 0.5 - side * len * 0.10, cyp = bp[1] + diry * len * 0.5 + len * 0.13;
-    const jit = (hash2(fi * 7 + (side > 0 ? 3 : 131), 5) - 0.5) * 0.13;
-    drawRibbon([mx(bp[0]), bp[1]], [mx(cxp), cyp], [mx(ex), ey], 42 - 6 * t, {
-      len, taper: 0.42, alpha: 0.96, seed: fi * 1.37 + (side > 0 ? 0 : 50), shaft: true, hot: true,
-      core: [GOLD[0] + jit, GOLD[1] + jit * 0.5, GOLD[2]], edge: t > 0.55 ? CRIM : DEEP,
+  // fingered tip: two smaller tongues diverging from 62% along the plume
+  const mp = quadPt([bx, by], [cxp, cyp], [ex, ey], 0.62);
+  const tang = Math.atan2(ey - cyp, ex - cxp) * 180 / Math.PI;
+  const nf = 1 + (hash2(seed * 29 + 1, 8) > 0.45 ? 1 : 0);
+  for (let f = 0; f < nf; f++) {
+    const fa = tang + (f - (nf - 1) / 2) * (16 + hash2(seed * 7 + f, 4) * 14) + (hash2(seed * 3 + f, 6) - 0.5) * 10;
+    const fl = len * (0.20 + hash2(seed * 11 + f, 2) * 0.12);
+    const fr = fa * Math.PI / 180;
+    drawRibbon(mp, [mp[0] + Math.cos(fr) * fl * 0.5, mp[1] + Math.sin(fr) * fl * 0.5],
+      [mp[0] + Math.cos(fr) * fl, mp[1] + Math.sin(fr) * fl], wid * 0.55, {
+      len: fl, taper: 0.8, alpha: (opt.alpha ?? 0.95) * 0.85, seed: seed + 40 + f * 3.7,
+      shaft: false, hot: true, breakup: true, core: opt.core, edge: opt.edge,
     });
   }
-  for (let row = 0; row < 3; row++) {
-    const off = row * 27, NC = 11;
-    for (let ci = NC - 1; ci >= 0; ci--) {
-      const t = ci / (NC - 1) * 0.92;
-      const bp = quadPt(base0, base1, base2, t);
-      const ang = lerp(1.40, 0.52, t);
-      const len = 122 - row * 26 + 28 * t;
-      const dirx = Math.cos(ang) * side, diry = Math.sin(ang);
-      const bx = bp[0], by = bp[1] - off - 6;
-      const ex = bx + dirx * len, ey = by + diry * len;
-      drawRibbon([mx(bx), by], [mx(bx + dirx * len * 0.5), by + diry * len * 0.5 + len * 0.10], [mx(ex), ey], 36 - row * 3, {
-        len, taper: 0.55, alpha: 0.96, seed: 100 + row * 23 + ci * 1.71 + (side > 0 ? 0 : 77), shaft: false, hot: row === 2,
-        core: [HOT[0], HOT[1] - row * 0.06, HOT[2]], edge: CRIM,
+}
+// A fanned wing of layered flame plumes radiating from a shoulder.
+// ang0->ang1 sweeps the fan; bases creep along the arm so the wing has a
+// leading edge, and lengths peak mid-fan with heavy seeded jitter.
+function flameWing(sh, ang0, ang1, armDir, opt) {
+  // soft dark under-glow silhouette so gaps read as depth, not holes
+  const NP = opt.n;
+  for (let layer = 0; layer < 3; layer++) {
+    const n = layer === 0 ? NP : Math.floor(NP * 0.8);
+    for (let i = n - 1; i >= 0; i--) {
+      const t = n === 1 ? 0.5 : i / (n - 1);
+      const seed = opt.seedBase + layer * 131 + i * 7.3;
+      const jt = (hash2(seed, 11) - 0.5);
+      const ang = lerp(ang0, ang1, t) + jt * 9 + (layer - 1) * 5;
+      const armT = clamp(t * 0.85 + layer * 0.05, 0, 1);
+      const bx = sh[0] + Math.cos(armDir * Math.PI / 180) * armT * opt.armLen + jt * 14;
+      const by = sh[1] + Math.sin(armDir * Math.PI / 180) * armT * opt.armLen + (hash2(seed, 12) - 0.5) * 16;
+      const lenBase = opt.len * (0.55 + 0.55 * Math.sin(Math.PI * clamp(t, 0, 1)));
+      const len = lenBase * (layer === 0 ? 1 : layer === 1 ? 0.62 : 0.38) * (0.78 + hash2(seed, 13) * 0.5);
+      const wid = opt.wid * (layer === 0 ? 1 : 0.85) * (0.75 + hash2(seed, 14) * 0.55);
+      if (layer > 0 && hash2(seed, 15) > 0.82) continue; // irregular gaps
+      flamePlume(bx, by, ang, len, wid, seed, {
+        core: opt.core, edge: layer === 0 ? opt.edge : opt.edge2,
+        alpha: opt.alpha * (layer === 2 ? 0.9 : 1), taper: 0.72 + hash2(seed, 16) * 0.25,
+        curve: opt.curveBias * len * 0.2,
       });
     }
   }
-  strokeGlow([mx(512), 432], [mx(712), 318], [mx(958), 618], 1.0, 0.52, 0.11, 0.8, 12);
+  // downy flame at the shoulder: short fat tongues + warm splats
+  for (let i = 0; i < 16; i++) {
+    const seed = opt.seedBase + 900 + i * 5.1;
+    const ang = lerp(ang0, ang1, hash2(seed, 1)) + (hash2(seed, 2) - 0.5) * 20;
+    flamePlume(sh[0] + (hash2(seed, 3) - 0.5) * 30, sh[1] + (hash2(seed, 4) - 0.5) * 30,
+      ang, 55 + hash2(seed, 5) * 60, 30 + hash2(seed, 6) * 16, seed,
+      { core: HOT, edge: CRIM, alpha: 0.85, taper: 0.8 });
+  }
 }
 
 // distant embers behind the bird (small, dim: depth-attenuated)
-for (let i = 0; i < 240; i++) {
-  const x = rng() * W, y = 90 + rng() * 830, z = 0.25 + rng() * 0.75; // z = apparent depth
+for (let i = 0; i < 215; i++) {
+  const x = rng() * W, y = 90 + rng() * 830, z = 0.25 + rng() * 0.75;
   const r = (0.7 + rng() * 1.8) * z, b = (0.25 + rng() * 0.7) * z * z;
   splatSS(x * K, y * K, r * 3 * K, 1.0 * b, 0.48 * b, 0.09 * b, 0.5);
 }
 
-drawWing(1); drawWing(-1);
+// ---- FAR WING (raised, NW): dimmer, more crimson, behind the body
+flameWing([548, 388], 178, 282, 225, {
+  n: 13, len: 305, wid: 82, armLen: 150, seedBase: 2000, alpha: 0.90,
+  core: [0.92, 0.58, 0.17], edge: [0.50, 0.08, 0.09], edge2: [0.58, 0.10, 0.08], curveBias: -1,
+});
+strokeGlow([548, 388], [400, 268], [196, 196], 1.0, 0.50, 0.10, 0.55, 10);
 
-// ------------------------------------------------- tail streamers
-for (let sIdx = 0; sIdx < 5; sIdx++) {
-  const spread = (sIdx - 2) / 2;
-  const bx = 512 + spread * 22, by = 552;
-  const len = 200 - Math.abs(spread) * 24 + (hash2(sIdx, 9) - 0.5) * 22;
-  const ex = 512 + spread * 150, ey = by + len;
-  const cxp = bx + spread * 55 + Math.sin(sIdx * 3.7) * 20, cyp = by + len * 0.52;
-  drawRibbon([bx, by], [cxp, cyp], [ex, ey], 72, { len, taper: 0.9, alpha: 0.20, seed: 300 + sIdx * 3.1, shaft: false, hot: false, core: GOLD, edge: CRIM, breakup: true });
-  drawRibbon([bx, by], [cxp, cyp], [ex, ey], 42 - Math.abs(spread) * 5, { len, taper: 0.55, alpha: 0.92, seed: 300 + sIdx * 3.1, shaft: true, hot: true, core: HOT, edge: [0.66, 0.11, 0.05], breakup: true });
-  splatSS(ex * K, ey * K, 15 * K, 1.0, 0.50, 0.09, 0.14);
-}
-for (let sIdx = 0; sIdx < 3; sIdx++) {
-  const spread = (sIdx - 1) * 0.55;
-  const bx = 512 + spread * 20, by = 552;
-  const len = 128 + (hash2(sIdx, 21) - 0.5) * 22;
-  drawRibbon([bx, by], [bx + spread * 34, by + len * 0.5], [512 + spread * 74, by + len], 18, {
-    len, taper: 0.6, alpha: 0.9, seed: 340 + sIdx * 2.9, shaft: true, hot: true, core: HOT, edge: [0.72, 0.13, 0.04], breakup: true,
-  });
+// ---- TAIL STREAMERS: 4 long S-curve ribbons trailing SW, curling low
+{
+  const tailBase = [352, 612];
+  const streamers = [
+    { p1: [268, 700], p2: [150, 790], p3: [196, 936], w: 40, seed: 310 },
+    { p1: [330, 716], p2: [268, 836], p3: [392, 952], w: 46, seed: 320 },
+    { p1: [392, 700], p2: [430, 820], p3: [566, 928], w: 38, seed: 330 },
+    { p1: [300, 668], p2: [180, 720], p3: [92, 838], w: 30, seed: 340 },
+    { p1: [366, 660], p2: [470, 730], p3: [648, 836], w: 26, seed: 350 },
+  ];
+  for (const s of streamers) {
+    const len = 430;
+    drawCubicRibbon(tailBase, s.p1, s.p2, s.p3, s.w * 1.9, { len, taper: 0.85, alpha: 0.16, seed: s.seed, shaft: false, hot: false, core: GOLD, edge: CRIM, breakup: true });
+    drawCubicRibbon(tailBase, s.p1, s.p2, s.p3, s.w, { len, taper: 0.75, alpha: 0.92, seed: s.seed, shaft: true, hot: true, core: HOT, edge: [0.68, 0.12, 0.05], breakup: true });
+    drawCubicRibbon(tailBase, s.p1, s.p2, s.p3, s.w * 0.42, { len, taper: 0.7, alpha: 0.85, seed: s.seed + 5, shaft: false, hot: true, core: [1.10, 0.82, 0.38], edge: GOLD, breakup: true });
+    splatSS(s.p3[0] * K, s.p3[1] * K, 13 * K, 1.0, 0.50, 0.09, 0.13);
+  }
 }
 
-// ------------------------------------------------- body, neck, head (soft SDF)
-function bodySDF(x, y) {
-  const ell = (cx, cy, rx, ry) => { const dx = (x - cx) / rx, dy = (y - cy) / ry; return Math.sqrt(dx * dx + dy * dy) - 1; };
-  return Math.min(ell(512, 472, 60, 98), ell(512, 388, 33, 62), ell(512, 330, 31, 29));
+// ---- NEAR WING (sweeping down-forward, SE): big, bright, in front of tail
+flameWing([488, 452], -14, 96, 35, {
+  n: 14, len: 350, wid: 92, armLen: 165, seedBase: 5000, alpha: 0.96,
+  core: GOLD, edge: CRIM, edge2: DEEP, curveBias: 1,
+});
+strokeGlow([488, 452], [660, 470], [905, 560], 1.0, 0.52, 0.11, 0.7, 12);
+
+// ---- BODY along a diagonal spine (SDF over sampled spine + radius profile)
+const spinePts = [];
+{
+  const seg1 = [[352, 612], [404, 540], [472, 462]];
+  const seg2 = [[472, 462], [538, 388], [598, 316]];
+  for (let i = 0; i <= 26; i++) spinePts.push(quadPt(seg1[0], seg1[1], seg1[2], i / 26));
+  for (let i = 1; i <= 20; i++) spinePts.push(quadPt(seg2[0], seg2[1], seg2[2], i / 20));
 }
-for (let sy = 268 * K; sy <= 586 * K; sy++) for (let sx = 428 * K; sx <= 596 * K; sx++) {
+function spineRadius(t) {
+  // tail tip -> deep belly -> broad chest -> slim neck
+  return lerp(lerp(27, 62, sstep(0, 0.45, t)), lerp(62, 22, sstep(0.62, 1, t)), sstep(0.45, 0.62, t));
+}
+for (let sy = 240 * K; sy <= 700 * K; sy++) for (let sx = 270 * K; sx <= 680 * K; sx++) {
   const x = sx / K, y = sy / K;
-  const d = bodySDF(x, y);
-  if (d > 0.10) continue;
-  const edge = sstep(0.04, -0.55, d);
-  const tex = fbm(x * 0.03, y * 0.03, 3);
-  // overlapping scale shading: soft scallops lit from the chest core
-  const scallop = 0.90 + 0.11 * Math.sin(y * 0.40 + Math.sin(x * 0.11) * 2.2) * Math.sin(x * 0.15);
-  const streak = 0.93 + 0.11 * vnoise(x * 0.22, y * 0.04); // vertical feather grain
-  let r = lerp(0.38, 0.94, edge) * scallop * streak;
-  let g = lerp(0.05, 0.54, edge) * scallop * streak;
-  let b = lerp(0.06, 0.16, edge) * scallop * streak;
-  r *= 0.9 + tex * 0.25; g *= 0.9 + tex * 0.25; b *= 0.9 + tex * 0.25;
-  const a = sstep(0.10, 0.0, d);
+  let best = 1e9, bt = 0;
+  for (let i = 0; i < spinePts.length; i++) {
+    const dx = x - spinePts[i][0], dy = y - spinePts[i][1];
+    const d = dx * dx + dy * dy;
+    if (d < best) { best = d; bt = i / (spinePts.length - 1); }
+  }
+  const rad = spineRadius(bt);
+  const d = Math.sqrt(best) - rad + (fbm(x * 0.045 + 9, y * 0.045, 3) - 0.5) * 13; // ragged flame skin
+  if (d > 7) continue;
+  const inside = clamp(-d / rad, 0, 1); // 0 at skin, 1 at spine
+  const tex = fbm(x * 0.03 + 5, y * 0.03, 3);
+  const arc = bt * 300;
+  const scallop = 0.94 + 0.06 * Math.sin(arc * 0.32 + tex * 7.0) + 0.03 * Math.sin(arc * 0.9 + tex * 3.0);
+  const streakN = 0.93 + 0.11 * vnoise(x * 0.20 - y * 0.10, y * 0.05 + x * 0.03);
+  const coreHeat = Math.exp(-Math.pow(Math.hypot(x - CORE[0], y - CORE[1]) / 95, 2));
+  let r = lerp(0.40, 1.00, Math.pow(inside, 0.7)) * scallop * streakN;
+  let g = lerp(0.06, 0.60, Math.pow(inside, 0.7)) * scallop * streakN;
+  let b = lerp(0.06, 0.18, Math.pow(inside, 0.7)) * scallop * streakN;
+  r *= 0.88 + tex * 0.30; g *= 0.88 + tex * 0.30; b *= 0.88 + tex * 0.30;
+  r += coreHeat * 0.55; g += coreHeat * 0.34; b += coreHeat * 0.10;
+  const a = sstep(7, -2, d);
   blendSS(sx, sy, r, g, b, a);
-  if (d > -0.12 && d < 0.05) addSS(sx, sy, 0.20, 0.09, 0.01); // soft rim
+  if (d > -3 && d < 5) addSS(sx, sy, 0.16, 0.07, 0.01);
 }
-// chest shingles
-for (let row = 0; row < 6; row++) {
-  const cy = 424 + row * 22, half = 4 - Math.abs(row - 2.4) * 0.9;
-  for (let k = -3; k <= 3; k++) {
-    if (Math.abs(k) > half) continue;
-    const bx = 512 + k * 14 + (row % 2) * 6 + (hash2(row * 31, k * 7) - 0.5) * 3;
-    drawRibbon([bx, cy], [bx + 1, cy + 14], [bx + 2, cy + 30], 19, {
-      len: 30, taper: 0.65, alpha: 0.80, seed: 500 + row * 13 + k, shaft: false, hot: false, core: [0.97, 0.66, 0.24], edge: CRIM,
+// chest shingles following the spine, pointing tail-ward, irregular
+for (let row = 0; row < 7; row++) {
+  const t = 0.34 + row * 0.075;
+  const idx = Math.floor(t * (spinePts.length - 1));
+  const c = spinePts[idx], c2 = spinePts[Math.min(spinePts.length - 1, idx + 2)];
+  let tx = c2[0] - c[0], ty = c2[1] - c[1];
+  const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+  const nx = -ty, ny = tx;
+  const rad = spineRadius(t);
+  const across = row % 2 === 0 ? [-0.45, 0.05, 0.5] : [-0.2, 0.32];
+  for (const off of across) {
+    const seed = 600 + row * 17 + Math.round((off + 1) * 10);
+    const bx = c[0] + nx * off * rad * 0.8 + (hash2(seed, 1) - 0.5) * 6;
+    const by = c[1] + ny * off * rad * 0.8 + (hash2(seed, 2) - 0.5) * 6;
+    const back = 26 + hash2(seed, 3) * 10;
+    drawRibbon([bx, by], [bx - tx * back * 0.5 + nx * 3, by - ty * back * 0.5 + ny * 3],
+      [bx - tx * back, by - ty * back], 20 - row * 0.8, {
+      len: back, taper: 0.6, alpha: 0.20, seed, shaft: false, hot: false,
+      core: [0.99, 0.68, 0.26], edge: CRIM,
     });
   }
 }
-// crest filaments
-for (let ci = 0; ci < 7; ci++) {
-  const a = -Math.PI / 2 + (ci - 3) * 0.30;
-  const len = 118 - Math.abs(ci - 3) * 13;
-  const bx = 512 + Math.cos(a) * 16, by = 322 + Math.sin(a) * 10;
-  const ex = 512 + Math.cos(a) * len * 0.95 + (ci - 3) * 9, ey = 322 - len * 0.72 + Math.abs(ci - 3) * 10;
-  drawRibbon([bx, by], [512 + Math.cos(a) * len * 0.55, 322 - len * 0.5], [ex, ey], 10 - Math.abs(ci - 3), {
-    len, taper: 0.85, alpha: 0.94, seed: 700 + ci * 2.3, shaft: true, hot: true, core: HOT, edge: [0.74, 0.15, 0.04], breakup: true,
+
+// ---- HEAD: proud raptor profile turned three-quarter toward the viewer,
+// beak hooked to the NE, crest flames swept BACK to the SW.
+{
+  const hx = 622, hy = 282;
+  const ellPoly = (cx, cy, rx, ry) => {
+    const pts = [];
+    for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2; pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]); }
+    return pts;
+  };
+  // cranium built from overlapping soft ellipses (round, never polygonal)
+  fillPolySS(ellPoly(624, 278, 31, 27), (x, y) => {
+    const dx = x / K, dy = y / K;
+    const heat = Math.exp(-Math.pow(Math.hypot(dx - 620, dy - 276) / 26, 2));
+    blendSS(x, y, 0.94 + heat * 0.16, 0.58 + heat * 0.12, 0.16, 0.97);
   });
-}
-// beak (soft-edged wedge via SDF-ish distance fade) + eyes
-fillPolySS([[498, 346], [526, 346], [512, 376], [506, 362]], (x, y) => blendSS(x, y, 0.60, 0.31, 0.07, 0.92));
-fillPolySS([[506, 362], [512, 376], [509, 364]], (x, y) => blendSS(x, y, 0.13, 0.05, 0.03, 0.92));
-for (const ex of [495, 529]) {
-  const inw = ex < 512 ? 1 : -1;
-  for (let s = 0; s <= 24; s++) {
-    const bx = (ex - inw * 8 + inw * s * 0.5) * K, by = (314 + s * 0.28) * K;
-    splatSS(bx, by, 2.6, 0.10, 0.02, 0.02, 0.30);
+  fillPolySS(ellPoly(610, 292, 20, 15), (x, y) => blendSS(x, y, 0.86, 0.48, 0.12, 0.50)); // cheek
+  fillPolySS(ellPoly(636, 260, 17, 12), (x, y) => blendSS(x, y, 0.99, 0.66, 0.22, 0.45)); // crown highlight
+  fillPolySS([[600, 292], [628, 306], [650, 296], [640, 316], [612, 318], [598, 306]], (x, y) => blendSS(x, y, 0.80, 0.44, 0.11, 0.95)); // jaw/throat
+  // hooked beak: long slim upper mandible, tip curving down into a hook
+  fillPolySS([[644, 260], [676, 264], [702, 274], [696, 284], [676, 282], [664, 276], [660, 292], [650, 282], [643, 272]], (x, y) => blendSS(x, y, 0.96, 0.62, 0.20, 0.97));
+  fillPolySS([[676, 282], [696, 284], [690, 296], [672, 292]], (x, y) => blendSS(x, y, 0.34, 0.14, 0.05, 0.97)); // hook tip shadow
+  fillPolySS([[648, 284], [670, 289], [658, 299], [645, 295]], (x, y) => blendSS(x, y, 0.74, 0.44, 0.13, 0.95)); // lower mandible
+  // brow ridge + single visible eye with specular highlight
+  for (let s = 0; s <= 20; s++) {
+    const bx = (614 + s * 1.1) * K, by = (258 - Math.sin(s / 20 * Math.PI) * 3 + s * 0.22) * K;
+    splatSS(bx, by, 3.0, 0.22, 0.08, 0.02, 0.4);
   }
-  splatSS(ex * K, 326 * K, 9 * K, 1.0, 0.58, 0.12, 0.55);
-  splatSS(ex * K, 326 * K, 2.4 * K, 1.30, 1.10, 0.70, 0.9);
+  splatSS(632 * K, 274 * K, 8.5 * K, 0.16, 0.05, 0.03, 0.95);       // eye socket dark
+  splatSS(632 * K, 274 * K, 4.2 * K, 1.05, 0.62, 0.14, 0.95);       // iris molten
+  splatSS(630 * K, 271 * K, 1.7 * K, 1.35, 1.25, 1.05, 1.0);        // specular point
+  splatSS(650 * K, 264 * K, 2.2 * K, 0.25, 0.10, 0.04, 0.8);        // nostril
+  splatSS(624 * K, 278 * K, 36 * K, 1.0, 0.60, 0.16, 0.16);         // unify head tones
+  // crest: broad flame ribbons swept back (SW), all different, no fingers
+  const crest = [
+    { a: 198, l: 104, w: 30 }, { a: 216, l: 138, w: 34 }, { a: 235, l: 118, w: 28 },
+    { a: 254, l: 88, w: 19 }, { a: 178, l: 76, w: 18 }, { a: 226, l: 70, w: 15 },
+  ];
+  crest.forEach((c, i) => {
+    const seed = 800 + i * 3.3;
+    const bx = hx - 10 + (hash2(i * 7, 1) - 0.5) * 10, by = hy - 20 + (hash2(i * 7, 2) - 0.5) * 8;
+    const a = (c.a + (hash2(i * 13, 3) - 0.5) * 12) * Math.PI / 180;
+    const ex = bx + Math.cos(a) * c.l, ey = by + Math.sin(a) * c.l;
+    drawRibbon([bx, by], [bx + Math.cos(a) * c.l * 0.5 - Math.sin(a) * 10, by + Math.sin(a) * c.l * 0.5 + Math.cos(a) * 10],
+      [ex, ey], c.w, { len: c.l, taper: 0.8, alpha: 0.94, seed, shaft: true, hot: true, breakup: true, core: HOT, edge: [0.74, 0.15, 0.04] });
+  });
+  // neck ruff: short plumes where neck meets chest, breaking the tube outline
+  for (let i = 0; i < 6; i++) {
+    const seed = 860 + i * 4.3;
+    flamePlume(588 + (hash2(seed, 1) - 0.5) * 22, 330 + (hash2(seed, 2) - 0.5) * 22,
+      120 + i * 14 + (hash2(seed, 3) - 0.5) * 16, 52 + hash2(seed, 4) * 34, 27, seed,
+      { core: GOLD, edge: CRIM, alpha: 0.9, taper: 0.7 });
+  }
 }
-splatSS(512 * K, 330 * K, 58 * K, 1.0, 0.53, 0.11, 0.16);
+// tail skirt: a fan of plumes at the tail base so body melts into streamers
+for (let i = 0; i < 6; i++) {
+  const seed = 880 + i * 4.9;
+  flamePlume(352 + (hash2(seed, 1) - 0.5) * 18, 612 + (hash2(seed, 2) - 0.5) * 18,
+    52 + i * 15 + (hash2(seed, 3) - 0.5) * 14, 74 + hash2(seed, 4) * 52, 32, seed,
+    { core: GOLD, edge: CRIM, alpha: 0.92, taper: 0.75 });
+}
+
+// ---- RADIANT CORE at the chest: a small sun, the scene's key light
+splatSS(CORE[0] * K, CORE[1] * K, 120 * K, 1.0, 0.55, 0.12, 0.30);
+splatSS(CORE[0] * K, CORE[1] * K, 58 * K, 1.05, 0.66, 0.20, 0.55);
+splatSS(CORE[0] * K, CORE[1] * K, 26 * K, 1.15, 0.88, 0.45, 0.85);
+splatSS(CORE[0] * K, CORE[1] * K, 11 * K, 1.30, 1.15, 0.85, 1.0);
+// short flame tongues radiating from the core
+for (let i = 0; i < 9; i++) {
+  const seed = 950 + i * 4.7;
+  const ang = hash2(seed, 1) * 360;
+  flamePlume(CORE[0], CORE[1], ang, 16 + hash2(seed, 2) * 22, 11 + hash2(seed, 3) * 7, seed,
+    { core: [1.08, 0.80, 0.36], edge: GOLD, alpha: 0.55, taper: 1.0 });
+}
+
 
 // ------------------------------------------------- lighthouse + beam
 {
@@ -454,7 +616,7 @@ splatSS(512 * K, 330 * K, 58 * K, 1.0, 0.53, 0.11, 0.16);
 }
 
 // ------------------------------------------------- foreground embers (depth-attenuated)
-for (let i = 0; i < 350; i++) {
+for (let i = 0; i < 290; i++) {
   const x = rng() * W, y = rng() * H;
   const nearBird = Math.exp(-Math.pow(Math.hypot(x - 512, y - 452) / 520, 2));
   if (rng() > 0.35 + nearBird * 0.65 && y < 700) continue;
@@ -544,7 +706,7 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
   const i = (y * W + x) * 3;
   const dx = (x - 512) / 640, dy = (y - 500) / 640;
   const vig = 1 - 0.42 * sstep(0.45, 1.25, Math.sqrt(dx * dx + dy * dy));
-  const grain = (hash2(x * 3 + 11, y * 3 + 7) - 0.5) * 0.0006;      // whisper of film grain
+  const grain = (hash2(x * 3 + 11, y * 3 + 7) - 0.5) * 0.0001;      // whisper of film grain
   const dith = (BAYER[(y & 7) * 8 + (x & 7)] / 64 - 0.5) * (1.0 / 255); // ordered dither vs banding
   for (let c = 0; c < 3; c++) {
     let v = aces(img[i + c] * 1.15);
