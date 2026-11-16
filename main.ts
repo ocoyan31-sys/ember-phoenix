@@ -87,7 +87,7 @@ for (let y = 0; y < H; y++) {
     const v = y / H;
     // plum -> burgundy gradient
     let r, g, b;
-    if (v < 0.55) { const t = v / 0.55; r = lerp(0.075, 0.20, t); g = lerp(0.028, 0.055, t); b = lerp(0.125, 0.145, t); }
+    if (v < 0.55) { const t = v / 0.55; r = lerp(0.068, 0.20, t); g = lerp(0.026, 0.055, t); b = lerp(0.135, 0.145, t); }
     else { const t = (v - 0.55) / 0.45; r = lerp(0.20, 0.335, t); g = lerp(0.055, 0.085, t); b = lerp(0.145, 0.115, t); }
     // storm clouds, domain warped
     const warp = fbm(x * 0.0016 + 4.2, y * 0.0016, 2);
@@ -268,12 +268,13 @@ drawWing(1); drawWing(-1);
 for (let sIdx = 0; sIdx < 5; sIdx++) {
   const spread = (sIdx - 2) / 2; // -1..1
   const bx = 512 + spread * 22, by = 552;
-  const len = 215 - Math.abs(spread) * 30 + (hash2(sIdx, 9) - 0.5) * 22;
-  const ex = 512 + spread * 165, ey = by + len;
-  const cxp = bx + spread * 55 + Math.sin(sIdx * 2.4) * 14, cyp = by + len * 0.52;
+  const len = 200 - Math.abs(spread) * 24 + (hash2(sIdx, 9) - 0.5) * 22;
+  const ex = 512 + spread * 150, ey = by + len;
+  const cxp = bx + spread * 55 + Math.sin(sIdx * 3.7) * 20, cyp = by + len * 0.52;
   // wide faint glow pass, then a solid textured core
   drawRibbon([bx, by], [cxp, cyp], [ex, ey], 60, { len, taper: 0.9, alpha: 0.22, seed: 300 + sIdx * 3.1, shaft: false, hot: false, core: GOLD, edge: CRIM, breakup: true });
-  drawRibbon([bx, by], [cxp, cyp], [ex, ey], 29 - Math.abs(spread) * 4, { len, taper: 0.5, alpha: 0.92, seed: 300 + sIdx * 3.1, shaft: true, hot: true, core: HOT, edge: [0.72, 0.12, 0.05], breakup: true });
+  drawRibbon([bx, by], [cxp, cyp], [ex, ey], 32 - Math.abs(spread) * 5, { len, taper: 0.5, alpha: 0.92, seed: 300 + sIdx * 3.1, shaft: true, hot: true, core: HOT, edge: [0.72, 0.12, 0.05], breakup: true });
+  splat(ex, ey, 17, 1.0, 0.52, 0.10, 0.16); // flame lick at the tip
 }
 // short flame tongues between the streamers
 for (let sIdx = 0; sIdx < 3; sIdx++) {
